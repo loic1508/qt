@@ -1,51 +1,114 @@
 #include "QtWidgetsApplication4.h"
-#include <QDebug.h>
-#include <QSqlQuery.h>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDebug>
+#include <QMessageBox>
 
-QtWidgetsApplication4::QtWidgetsApplication4(QWidget *parent)
+QtWidgetsApplication4::QtWidgetsApplication4(QWidget* parent)
     : QMainWindow(parent)
 {
     ui.setupUi(this);
-	db = QSqlDatabase::addDatabase("QSQLITE");
+    db = QSqlDatabase::addDatabase("QMYSQL");
+    db.setHostName("172.29.16.55");
+    db.setDatabaseName("QTBDD");
+    db.setUserName("testBDD");
+    db.setPassword("testBDD");
 
-	db.setHostName("172.29.16.255");
-	db.setUserName("test");
-	db.setPassword("test");
-	db.setDatabaseName("QTBDD");
+    if (db.open())
+    {
+        ui.DBStatusLabel->setText("Status BDD : Connecté");
+        updateUserList();
+    }
+    else
+    {
+        ui.DBStatusLabel->setText("Status BDD : Erreur de connexion");
+        qDebug() << "Erreur connexion :" << db.lastError().text();
+    }
 
-	if (db.open())
-	{
-		ui.DBStatusLabel->setText("Connected to database");
+    connect(ui.pushButton, &QPushButton::clicked,
+        this, &QtWidgetsApplication4::onCreateUserButtonClicked);
+    connect(ui.ConnectUserButton, &QPushButton::clicked,
+        this, &QtWidgetsApplication4::onLoginButtonClicked);
+}
 
-		QSqlQuery query("SELECT id, usernam, password * FROM users");
+void QtWidgetsApplication4::onCreateUserButtonClicked()
+{
+    QString username = ui.lineedit2->text();
+    QString password = ui.lineEdit->text();
 
-		model = new QStandardItemModel(query.size(), 3, this);
-		model->setHeaderData(0, Qt::Horizontal, "Id");
-		model->setHeaderData(0, Qt::Horizontal, "Username");
-		model->setHeaderData(0, Qt::Horizontal, "Password hash");
+    QSqlQuery query;
+    query.prepare("INSERT INTO Users (Login, Password) VALUES (:user, SHA2(:pass, 512));");
+    query.bindValue(":user", username);
+    query.bindValue(":pass", password);
 
-		int lineCounter = 0;
-		while (query.next())
-		{
-			//QString username = query.value(0).toString();
-			//qDebug() << "Username: " << username;
+    if (query.exec())
+    {
+        qDebug() << "Utilisateur ajouté.";
+        
+        QMessageBox msgBox;
+        msgBox.setText("Utilisateur créé avec succès !");
+        msgBox.exec();
+        updateUserList();
+    }
+    else
+    {
+        qDebug() << "Erreur ajout :" << query.lastError().text();
+        QMessageBox::warning(this, "Erreur",
+            "Impossible d'ajouter l'utilisateur :\n" + query.lastError().text());
+    }
+}
 
-			int id = query.value("id").toInt();
-			QString username = query.value("username").toString();
-			QString password = query.value("password").toString();
+void QtWidgetsApplication4::onLoginButtonClicked()
+{
+    QString username = ui.UsernameLineEdit_2->text();
+    QString password = ui.PasswordLineEdit_2->text();
 
-			model->setItem(lineCounter, 0, new QStandardItem(QString::number(id)));
-			model->setItem(lineCounter, 1, new QStandardItem(username));
-			model->setItem(lineCounter, 2, new QStandardItem(password));
+    QSqlQuery query;
+    query.prepare("SELECT id FROM Users WHERE Login = :user AND Password = SHA2(:pass, 512);");
+    query.bindValue(":user", username);
+    query.bindValue(":pass", password);
 
-			lineCounter++;
-		}
+    
+    if (!query.exec())
+    {
+        QMessageBox::warning(this, "Erreur SQL",
+            "Erreur lors de la connexion :\n" + query.lastError().text());
+        return;
+    }
 
-		ui.RequestResultTableViev->setModel(model);
+    QMessageBox msgBox;
+    msgBox.setText(query.next() ? "Connexion réussie !" : "Connexion échouée !");
+    msgBox.exec();
+}
 
-	}
-	else
-	{
+void QtWidgetsApplication4::updateUserList()
+{
+    QSqlQuery query("SELECT id, Login, Password FROM Users;");
+
+    if (model != nullptr)
+    {
+        model->deleteLater();
+        model = nullptr;
+    }
+
+    model = new QStandardItemModel(0, 3, this);
+    model->setHeaderData(0, Qt::Horizontal, "ID");
+    model->setHeaderData(1, Qt::Horizontal, "Login");
+    model->setHeaderData(2, Qt::Horizontal, "Password hash");
+
+    while (query.next())
+    {
+        QList<QStandardItem*> row;
+        row << new QStandardItem(QString::number(query.value("id").toInt()))
+            << new QStandardItem(query.value("Login").toString())
+            << new QStandardItem(query.value("Password").toString());
+        model->appendRow(row);
+    }
+
+    ui.RequestResultTableViev->setModel(model);
+}
+
+QtWidgetsApplication4::~QtWidgetsApplication4() {}
 		ui.DBStatusLabel->setText("Failed to connect to database");
 	}
 }
